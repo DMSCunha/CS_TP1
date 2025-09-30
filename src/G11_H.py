@@ -1,7 +1,7 @@
 import sympy
 import random
 
-def get_private_key(y, g, p):
+def get_private_key(y: int, g: int, p: int):
     """
     Alinea número 5:
     Ataque de força bruta, resolver (g^x mod p) até que o resultado seja o valor da chave pública (y)
@@ -23,6 +23,7 @@ def get_private_key(y, g, p):
         
         #valor de X encontrado
         if tmp == y:
+            print(f"[DEBUG] Founded by brute force private session key x = {x}")
             break
     
     return x

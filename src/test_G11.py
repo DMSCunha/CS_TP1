@@ -9,9 +9,9 @@ class TestCases(unittest.TestCase):
         
         message_size = 10
         
-        p, q, g = get_DSAparamenters(message_size)
+        (p, q, g) = get_DSAparamenters(message_size)
         
-        x, y = get_skeys(p, q, g)
+        (x, y) = get_skeys(p, q, g)
         
         x_discovered = get_private_key(y, g, p)
         

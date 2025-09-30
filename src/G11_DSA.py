@@ -31,12 +31,12 @@ def get_DSAparamenters(n: int):
     while True:
         #dois primos aleatórios, de acordo com documentação do DSA, p tem 3072 bits e q tem 160 bits
         #aqui são usados 16
-        p = sympy.randprime(1, 2**16)
-        q = sympy.randprime(1, 2**16)
+        p = sympy.randprime(3, 2**16) #2 não pode ser escolhido porque TODO
+        q = sympy.randprime(3, 2**16)
         
         #se p-1 for múltiplo de q
         if (p - 1) % q == 0 :
-            print(f"[DEBUG]: p = {p} and q = {q}")
+            print(f"[DEBUG] Random prime numbers : p = {p} and q = {q}")
             break
     
     while True:
@@ -48,9 +48,11 @@ def get_DSAparamenters(n: int):
         if g != 1:
             break
     
+    print(f"[DEBUG] Generated g = {g}")
+    
     return (p, q, g)
 
-def get_skeys(p, q, g):
+def get_skeys(p: int, q: int, g: int):
     """
     Alinea número 2:
     Gerar a chave privada (x) e a chave pública da sessão a partir dos parâmetros de domínio (p,q,g).
@@ -65,8 +67,10 @@ def get_skeys(p, q, g):
     """
     
     x = random.randint(1,q-1)
+    print(f"[DEBUG] Randomize private session key x = {x}")
     
     y = pow(g, x, p)
+    print(f"[DEBUG] Generated public session key y = {y}")
     
     return (x,y)
 

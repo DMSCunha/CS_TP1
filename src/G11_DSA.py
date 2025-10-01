@@ -23,34 +23,37 @@ def get_DSAparamenters(n: int):
     Returns:
         tuple (p,q,g): conjunto necessário de parâmetros para o algoritmo DSA.
     """
-    
-    #caso não haja mensagem
-    if n == 0:
-        raise ValueError("Message is empty (0)")
-    
-    while True:
-        #dois primos aleatórios, de acordo com documentação do DSA, p tem 3072 bits e q tem 160 bits
-        #aqui são usados 16
-        p = sympy.randprime(3, 2**16) #2 não pode ser escolhido porque TODO
-        q = sympy.randprime(3, 2**16)
-        
-        #se p-1 for múltiplo de q
-        if (p - 1) % q == 0 :
-            print(f"[DEBUG] Random prime numbers : p = {p} and q = {q}")
+
+    if n < 65:
+        raise ValueError("Size n must be at least 64 bits, otherwise not safe")
+
+    # q random
+    q = sympy.randprime(2**(n-1), 2**n)
+    # Encontrar p = k(nr inteiro) *q + 1
+    k_min = 2**(n - 32) #q aleatorio entre com (exemplo n=64) 2^64, logo k tem de ser no minimo 2^32
+    k_max = 2**(n - 1)
+    for k in range(k_min, k_max):
+        p = k * q + 1
+        if sympy.isprime(p):
             break
-    
+    else:
+        raise ValueError("Could not find suitable p")
+
+    print(f"[DEBUG] Random prime numbers : p = {p} and q = {q}")
+
     while True:
         #cálculo do g
-        # // é necessário para a divisão por inteiros, se não pow() não funciona mesmo o resultado sendo um int
-        g = pow(n, (p - 1)//q, p)
-        
+        # Escolhido um inteiro h aleatoriamente, tal que 1 < h < p 1;
+        h = random.randint(2, p - 1) # 1 < h < p-1
+        g = pow(h, (p - 1)//q, p) # // preciso para divisão inteira
+
         #caso seja 1
         if g != 1:
             break
     
     print(f"[DEBUG] Generated g = {g}")
     
-    return (p, q, g)
+    return p, q, g
 
 def get_skeys(p: int, q: int, g: int):
     """
@@ -72,5 +75,4 @@ def get_skeys(p: int, q: int, g: int):
     y = pow(g, x, p)
     print(f"[DEBUG] Generated public session key y = {y}")
     
-    return (x,y)
-
+    return x,y

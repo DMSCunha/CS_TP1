@@ -1,7 +1,7 @@
 import unittest
 import time
-from src.G11_DSA import get_DSAparamenters, get_skeys
-from src.G11_Attacks import get_private_key_brute_force
+from G11_DSA import get_DSAparameters, get_skeys
+from G11_Attacks import get_private_key
 
 
 class TestBruteForceTiming(unittest.TestCase):
@@ -33,14 +33,14 @@ class TestBruteForceTiming(unittest.TestCase):
         key_sizes = [4, 8, 16, 20, 25, 30]
         times = []
         for n in key_sizes:
-            p, q, g = get_DSAparamenters(n)
+            p, q, g = get_DSAparameters(n)
             x, y = get_skeys(p, q, g)
             start = time.time()
-            x_found = get_private_key_brute_force(y, g, p)
+            x_found = get_private_key(y, g, p)
             elapsed = time.time() - start
             times.append((n, elapsed))
             self.assertEqual(x, x_found)
-            print(f"Brute-force for n={n} bits: {elapsed:.4f} seconds")
+            print(f"[DEBUG] Brute-force for n={n} bits: {elapsed:.4f} seconds")
 
 
 if __name__ == '__main__':

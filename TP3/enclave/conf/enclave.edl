@@ -1,0 +1,37 @@
+enclave {
+
+    untrusted {
+    };
+
+
+    trusted {
+        public int ecall_get_random_bytes([out, size=len] uint8_t* buf, size_t len);
+
+    	public uint32_t ecall_get_sealed_data_size(uint32_t plaintext_len);
+
+    	public int ecall_seal_data([in, size=plaintext_len] uint8_t* plaintext, uint32_t plaintext_len, [out, size=sealed_size] uint8_t* sealed_data, uint32_t sealed_size);
+
+    	public int ecall_unseal_data([in, size=sealed_size] uint8_t* sealed_data, uint32_t sealed_size,
+    					 [out, size=plaintext_len] uint8_t* plaintext, uint32_t plaintext_len,
+    					 [out] uint32_t* plaintext_ret_len);
+
+    	/* Wallet encryption/decryption operations */
+    	public int ecall_encrypt_wallet([in, size=plaintext_len] uint8_t* plaintext, uint32_t plaintext_len,
+    					 [in, string] const char* master_password,
+    					 [out, size=ciphertext_len] uint8_t* ciphertext, uint32_t ciphertext_len,
+    					 [out, size=12] uint8_t* iv, [out, size=16] uint8_t* mac);
+
+    	public int ecall_decrypt_wallet([in, size=ciphertext_len] uint8_t* ciphertext, uint32_t ciphertext_len,
+    					 [in, string] const char* master_password,
+    					 [in, size=12] uint8_t* iv, [in, size=16] uint8_t* mac,
+    					 [out, size=plaintext_len] uint8_t* plaintext, uint32_t plaintext_len);
+
+    	/* Generate secure random password */
+    	public int ecall_generate_password([out, size=length] char* password, uint32_t length);
+
+    	/* Verify master password */
+    	public int ecall_verify_password([in, size=encrypted_len] uint8_t* encrypted_wallet, uint32_t encrypted_len,
+    					 [in, string] const char* master_password,
+    					 [in, size=12] uint8_t* iv, [in, size=16] uint8_t* mac);
+    };
+};

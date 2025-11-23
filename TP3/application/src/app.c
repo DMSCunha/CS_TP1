@@ -13,9 +13,6 @@
 
 sgx_enclave_id_t global_eid = 0;
 
-#define ENCLAVE_FILENAME "enclave.signed.so"
-#define AES_GCM_IV_SIZE 12
-#define AES_GCM_MAC_SIZE 16
 
 /* Encrypted wallet file structure on disk:
  * [IV (12 bytes)] [MAC (16 bytes)] [sealed encrypted wallet data]
@@ -136,7 +133,7 @@ int main(int argc, char** argv) {
             }
 
 			/* pwd_size already counts bytes (includes space for terminator), no need for sizeof(char) */
-			char* pwd = malloc((size_t)pwd_size);
+			char* pwd = (char *)malloc((size_t)pwd_size);
 
             ret = generate_password(pwd, pwd_size);
             if (is_error(ret)) {

@@ -13,6 +13,10 @@
 #define ERR_ITEM_DOES_NOT_EXIST 7
 #define ERR_ITEM_TOO_LONG 8
 
+#define ENCLAVE_FILENAME "enclave.signed.so"
+#define AES_GCM_IV_SIZE 12
+#define AES_GCM_MAC_SIZE 16
+
 // item
 struct Item {
 	char  title[WALLET_MAX_ITEM_SIZE];

@@ -6,52 +6,34 @@
 #include "sgx_tcrypto.h"
 #include <stdlib.h>
 #include <string.h>
+#include "enclave.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
 
-#define WALLET_MAX_ITEMS 100
-#define WALLET_MAX_ITEM_SIZE 100
-#define AES_GCM_KEY_SIZE 16
-#define AES_GCM_IV_SIZE 12
-#define AES_GCM_MAC_SIZE 16
 
-typedef struct {
-	char  title[WALLET_MAX_ITEM_SIZE];
-	char  username[WALLET_MAX_ITEM_SIZE];
-	char  password[WALLET_MAX_ITEM_SIZE];
-} item_t;
-
-typedef struct {
-	item_t items[WALLET_MAX_ITEMS];
-	size_t size;
-	char master_password[WALLET_MAX_ITEM_SIZE];
-} wallet_t;
-
-int ecall_get_random_bytes(uint8_t* buf, size_t len)
-{
-	if (buf == NULL || len == 0) {
-		return -1; // Invalid parameters
-	}
-
-	sgx_status_t status = sgx_read_rand((unsigned char*) buf, len);
-
-	if (status != SGX_SUCCESS) {
-		return -2; // Random generation failed
-	}
-
-	return 0;
-}
-
-/* Return the size (in bytes) required to hold sealed data for a plaintext of length plaintext_len */
+/**
+ * @brief Return the size (in bytes) required to hold sealed data
+ * 
+ * @param[in]  plaintext_len  lenght of the data to be sealed
+ * 
+ * @return 0 on failure, number of bytesthat can be sealed.
+ */
 uint32_t ecall_get_sealed_data_size(uint32_t plaintext_len)
 {
 	uint32_t sealed_size = sgx_calc_sealed_data_size(0, plaintext_len);
 	return sealed_size; /* if 0, sealing not possible */
 }
 
-/* Seal data provided in `plaintext` into `sealed_data` buffer of size sealed_size */
+/**
+ * @brief Seal data provided in `plaintext` into `sealed_data` buffer of size sealed_size
+ *
+ *
+ * @param[in]  plaintext       Input buffer containing the data to seal.
+ * @param[in]  plaintext_len   Length of the plaintext in bytes.
+ * @param[out] sealed_data     Output buffer that will receive the sealed data.
+ * @param[in]  sealed_size     Size of the output buffer.
+ *
+ * @return 0 on success, non-zero on failure.
+ */
 int ecall_seal_data(uint8_t* plaintext, uint32_t plaintext_len,
 					uint8_t* sealed_data, uint32_t sealed_size)
 {
@@ -67,7 +49,18 @@ int ecall_seal_data(uint8_t* plaintext, uint32_t plaintext_len,
 	return 0;
 }
 
-/* Unseal data in `sealed_data` (sealed_size bytes) into `plaintext` buffer. `plaintext_len` is in/out. */
+/**
+ * @brief Unseal data in `sealed_data` (sealed_size bytes) into `plaintext` buffer.
+ *.
+ *
+ * @param[in]  sealed_data         Input buffer containing sealed data.
+ * @param[in]  sealed_size         Size of the sealed data buffer in bytes.
+ * @param[out] plaintext           Output buffer that will receive the unsealed data.
+ * @param[in]  plaintext_len       Size of the output buffer in bytes.
+ * @param[out] plaintext_ret_len   Actual number of bytes written to @p plaintext.
+ *
+ * @return 0 on success, non-zero on failure.
+ */
 int ecall_unseal_data(uint8_t* sealed_data, uint32_t sealed_size,
 					  uint8_t* plaintext, uint32_t plaintext_len,
 					  uint32_t* plaintext_ret_len)
@@ -90,7 +83,14 @@ int ecall_unseal_data(uint8_t* sealed_data, uint32_t sealed_size,
 	return 0;
 }
 
-/* Helper: derive AES key from master password using SHA256 */
+/**
+ * @brief Helper: derive AES key from master password using SHA256
+ * 
+ * @param[in]   password  master password used to derive new keys
+ * @param[out]  key_out   new key created form the master
+ * 
+ * @return 0 on success, non-zero on failure.
+ */
 static int derive_key_from_password(const char* password, uint8_t* key_out)
 {
 	sgx_sha256_hash_t hash;
@@ -101,10 +101,26 @@ static int derive_key_from_password(const char* password, uint8_t* key_out)
 	}
 	/* Use first 16 bytes of hash as AES-128 key */
 	memcpy(key_out, hash, AES_GCM_KEY_SIZE);
+
+	//clear hash
+	memset_s(hash, sizeof(sgx_sha256_hash_t), 0, sizeof(sgx_sha256_hash_t));
 	return 0;
 }
 
-/* Encrypt wallet data using AES-GCM with master password */
+/**
+ * @brief Encrypt wallet data using AES-GCM with master password.
+ *
+ *
+ * @param[in]  plaintext         Input buffer containing wallet data to encrypt.
+ * @param[in]  plaintext_len     Length of the plaintext in bytes.
+ * @param[in]  master_password   Master password used encrypte the data.
+ * @param[out] ciphertext        Output buffer that receives the encrypted data.
+ * @param[in]  ciphertext_len    Size of the ciphertext output buffer.
+ * @param[out] iv                Output buffer for the AES-GCM initialization vector.
+ * @param[out] mac               Output buffer for the AES-GCM authentication tag.
+ *
+ * @return 0 on success, non-zero on failure.
+ */
 int ecall_encrypt_wallet(uint8_t* plaintext, uint32_t plaintext_len,
 						 const char* master_password,
 						 uint8_t* ciphertext, uint32_t ciphertext_len,
@@ -141,7 +157,7 @@ int ecall_encrypt_wallet(uint8_t* plaintext, uint32_t plaintext_len,
 	);
 
 	/* Clear key from memory */
-	memset(key, 0, AES_GCM_KEY_SIZE);
+	memset_s(key, AES_GCM_KEY_SIZE, 0, AES_GCM_KEY_SIZE);
 
 	if (ret != SGX_SUCCESS) {
 		return -5;
@@ -150,7 +166,19 @@ int ecall_encrypt_wallet(uint8_t* plaintext, uint32_t plaintext_len,
 	return 0;
 }
 
-/* Decrypt wallet data using AES-GCM with master password */
+/**
+ * @brief Decrypt wallet data using AES-GCM with master password.
+ *
+ * @param[in]  ciphertext       Encrypted data.
+ * @param[in]  ciphertext_len   Length of the encrypted data in bytes.
+ * @param[in]  master_password  Master password to decrypte the encrypted data.
+ * @param[in]  iv               Initialization vector (nonce) used for AES-GCM.
+ * @param[in]  mac              Authentication tag associated with the data.
+ * @param[out] plaintext        Output buffer where decrypted wallet data is written.
+ * @param[in]  plaintext_len    Size of the plaintext output buffer.
+ *
+ * @return 0 on success, non-zero on failure.
+ */
 int ecall_decrypt_wallet(uint8_t* ciphertext, uint32_t ciphertext_len,
 						 const char* master_password,
 						 uint8_t* iv, uint8_t* mac,
@@ -181,7 +209,7 @@ int ecall_decrypt_wallet(uint8_t* ciphertext, uint32_t ciphertext_len,
 	);
 
 	/* Clear key from memory */
-	memset(key, 0, AES_GCM_KEY_SIZE);
+	memset_s(key, AES_GCM_KEY_SIZE, 0, AES_GCM_KEY_SIZE);
 
 	if (ret != SGX_SUCCESS) {
 		return -4;  /* Decryption failed or MAC verification failed */
@@ -190,7 +218,14 @@ int ecall_decrypt_wallet(uint8_t* ciphertext, uint32_t ciphertext_len,
 	return 0;
 }
 
-/* Generate secure random password */
+/**
+ * @brief Generate a secure random password.
+ *
+ * @param[out] password  Output buffer that will receive the password.
+ * @param[in]  length    Length of the password to generate.
+ *
+ * @return 0 on success, non-zero on failure.
+ */
 int ecall_generate_password(char* password, uint32_t length)
 {
 	if (password == NULL || length < 8 || length > WALLET_MAX_ITEM_SIZE) {
@@ -214,16 +249,30 @@ int ecall_generate_password(char* password, uint32_t length)
 		return -3;
 	}
 
+	//generate password
 	for (uint32_t i = 0; i < length - 1; i++) {
 		password[i] = charset[rand_bytes[i] % charset_size];
 	}
 	password[length - 1] = '\0';
 
+	//clear memory allocated
+	memset_s(rand_bytes, length, 0, length);
 	free(rand_bytes);
 	return 0;
 }
 
-/* Verify master password by attempting to decrypt */
+
+/**
+ * @brief Verify master password by attempting to decrypt.
+ *
+ * @param[in] encrypted_wallet  Buffer containing the encrypted wallet.
+ * @param[in] encrypted_len     Length of the encrypted wallet in bytes.
+ * @param[in] master_password   Master password.
+ * @param[in] iv                Initialization vector (nonce) used for AES-GCM.
+ * @param[in] mac               Authentication tag for AES-GCM.
+ *
+ * @return 0 on success, non-zero on failure.
+ */
 int ecall_verify_password(uint8_t* encrypted_wallet, uint32_t encrypted_len,
 						  const char* master_password,
 						  uint8_t* iv, uint8_t* mac)
@@ -242,13 +291,9 @@ int ecall_verify_password(uint8_t* encrypted_wallet, uint32_t encrypted_len,
 									   temp_buffer, encrypted_len);
 
 	/* Clear temporary buffer */
-	memset(temp_buffer, 0, encrypted_len);
+	memset_s(temp_buffer,encrypted_len,0, encrypted_len);
 	free(temp_buffer);
 
 	return result;  /* 0 if password is correct, negative otherwise */
 }
-
-#ifdef __cplusplus
-}
-#endif
 

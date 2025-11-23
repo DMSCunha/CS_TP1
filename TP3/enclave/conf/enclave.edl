@@ -5,8 +5,6 @@ enclave {
 
 
     trusted {
-        public int ecall_get_random_bytes([out, size=len] uint8_t* buf, size_t len);
-
     	public uint32_t ecall_get_sealed_data_size(uint32_t plaintext_len);
 
     	public int ecall_seal_data([in, size=plaintext_len] uint8_t* plaintext, uint32_t plaintext_len, [out, size=sealed_size] uint8_t* sealed_data, uint32_t sealed_size);

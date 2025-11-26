@@ -34,6 +34,6 @@ void ocall_print_wallet( uint8_t* encrypted_data,  size_t data_size){
 }
 
 int ocall_print_string(const char *str){
-    printf( "%s\nj", str );
+    printf( "%s\n", str );
     return 0;
 }

@@ -38,19 +38,6 @@ static uint32_t local_get_sealed_data_size(uint32_t plaintext_len)
 }
 
 /**
- * @brief Return the size (in bytes) required to hold sealed data
- * 
- * @param[in]  plaintext_len  lenght of the data to be sealed
- * 
- * @return 0 on failure, number of bytesthat can be sealed.
- */
-uint32_t ecall_get_sealed_data_size(uint32_t plaintext_len)
-{
-	uint32_t sealed_size = sgx_calc_sealed_data_size(0, plaintext_len);
-	return sealed_size; /* if 0, sealing not possible */
-}
-
-/**
  * @brief Seal data provided in `plaintext` into `sealed_data` buffer of size sealed_size
  *
  *
@@ -113,6 +100,72 @@ static int local_unseal_data(const uint8_t* sealed_data, uint32_t sealed_size,
 }
 
 
+// This function ensure the wallet memory is free
+static int local_seal_and_write(wallet_t *wallet, size_t wallet_size){
+	
+	int status = 0;
+	uint32_t seal_size;
+	uint8_t* encrypted_data_to_save;
+	
+	//seal data
+	seal_size = local_get_sealed_data_size((uint32_t) wallet_size);
+	encrypted_data_to_save = (uint8_t *)malloc(seal_size);
+
+	status = local_seal_data(
+		(uint8_t*) wallet,
+		(uint32_t) wallet_size,
+		encrypted_data_to_save,
+		seal_size
+	);
+
+	memset_s(wallet, wallet_size, 0, wallet_size);
+	free(wallet);
+
+	//call ocall to save persistent data
+	status = ocall_write_to_wallet(&status, (uint8_t *) encrypted_data_to_save, seal_size);
+	if(status != 0){
+		memset_s(encrypted_data_to_save, seal_size, 0, seal_size);
+		free(encrypted_data_to_save);
+		return -4;
+	}
+
+	memset_s(encrypted_data_to_save, seal_size, 0, seal_size);
+	free(encrypted_data_to_save);	
+
+	return status;
+}
+
+//this functions allocates memory for the wallet pointer
+static int local_read_and_unseal(uint8_t* encrypted_data, size_t data_size, wallet_t *wallet, size_t wallet_size){
+	
+	int status = 0;
+	uint32_t plain_len;
+	uint8_t* plain_data = (uint8_t *)malloc(data_size);
+
+    status = local_unseal_data(
+        encrypted_data,
+        (uint32_t) data_size,
+        plain_data,
+        (uint32_t) data_size,
+        &plain_len
+    );
+
+    if (status != 0 || plain_len != wallet_size) {
+		free(plain_data);
+        return -2;
+    }
+
+    // Copy plaintext into caller buffer
+    memcpy(wallet, plain_data, wallet_size);
+	
+	memset_s(plain_data, plain_len, 0, plain_len);
+	free(plain_data);
+
+	return status;
+}
+
+//wallet_t* wallet = (wallet_t *)malloc(sizeof(wallet_t));
+
 /**
  * @brief Generate a secure random password.
  *
@@ -172,36 +225,20 @@ int ecall_generate_password(uint32_t length)
 int ecall_remove_item(const char* master_password, uint8_t* encrypted_data, size_t data_size, int index){
 
 	int status;
-	uint32_t plain_len;
-	uint32_t seal_size;
-	uint8_t* plain_data;
 	wallet_t* wallet;
-	uint8_t* encrypted_data_to_save;
 	
 	if(master_password == NULL || encrypted_data == NULL)
 		return -1;
 
-	plain_data = (uint8_t *)malloc(data_size);
-
-    status = local_unseal_data(
-        encrypted_data,
-        (uint32_t) data_size,
-        plain_data,
-        (uint32_t) data_size,
-        &plain_len
-    );
-
-    if (status != 0 || plain_len != sizeof(wallet_t)) {
-		free(plain_data);
-        return -2;
-    }
-
-    // Copy plaintext into caller buffer
 	wallet = (wallet_t *)malloc(sizeof(wallet_t));
-    memcpy(wallet, plain_data, sizeof(wallet_t));
-	
-	memset_s(plain_data, plain_len, 0, plain_len);
-	free(plain_data);
+
+	//read and unseal wallet data
+	status = local_read_and_unseal(encrypted_data, data_size, wallet, sizeof(wallet_t));
+	if(status != 0){
+		memset_s(wallet, sizeof(wallet_t), 0, sizeof(wallet_t));
+		free(wallet);
+		return -1;
+	}
 
 	// verify master-password
 	if (strcmp(wallet->master_password, master_password) != 0) {
@@ -223,69 +260,30 @@ int ecall_remove_item(const char* master_password, uint8_t* encrypted_data, size
 	}
 	--wallet->size;
 
-	//seal data
+	// encrypt plain text and write into persistent memory
+	status = local_seal_and_write(wallet, sizeof(wallet_t));
 	
-	seal_size = local_get_sealed_data_size((uint32_t) sizeof(wallet_t));
-	encrypted_data_to_save = (uint8_t *)malloc(seal_size);
-
-	status = local_seal_data(
-		(uint8_t*) wallet,
-		sizeof(wallet_t),
-		encrypted_data_to_save,
-		seal_size
-	);
-
-	memset_s(wallet, sizeof(wallet_t), 0, sizeof(wallet_t));
-	free(wallet);
-
-	//call ocall to save persistent data
-	status = ocall_write_to_wallet(&status, (uint8_t *) encrypted_data_to_save, seal_size);
-	if(status != 0){
-		memset_s(encrypted_data_to_save, seal_size, 0, seal_size);
-		free(encrypted_data_to_save);
-		return -4;
-	}
-
-	memset_s(encrypted_data_to_save, seal_size, 0, seal_size);
-	free(encrypted_data_to_save);
-	
-	return 0;
+	return status;
 }
 
 int ecall_add_item(const char* master_password, uint8_t* encrypted_data, size_t data_size, uint8_t* item, size_t item_size){
 	
 	(void)item_size;
 	int status;
-	uint32_t plain_len;
-	uint32_t seal_size;
-	uint8_t* plain_data;
 	wallet_t* wallet;
-	uint8_t* encrypted_data_to_save;
 	
 	if(master_password == NULL || encrypted_data == NULL || item == NULL)
 		return -1;
 
-	plain_data = (uint8_t *)malloc(data_size);
-
-    status = local_unseal_data(
-        encrypted_data,
-        (uint32_t) data_size,
-        plain_data,
-        (uint32_t) data_size,
-        &plain_len
-    );
-
-    if (status != 0 || plain_len != sizeof(wallet_t)) {
-		free(plain_data);
-        return -2;
-    }
-
-    // Copy plaintext into caller buffer
 	wallet = (wallet_t *)malloc(sizeof(wallet_t));
-    memcpy(wallet, plain_data, sizeof(wallet_t));
-	
-	memset_s(plain_data, plain_len, 0, plain_len);
-	free(plain_data);
+
+	//read and unseal wallet data
+	status = local_read_and_unseal(encrypted_data, data_size, wallet, sizeof(wallet_t));
+	if(status != 0){
+		memset_s(wallet, sizeof(wallet_t), 0, sizeof(wallet_t));
+		free(wallet);
+		return -1;
+	}
 
 	// verify master-password
 	if (strcmp(wallet->master_password, master_password) != 0) {
@@ -306,40 +304,16 @@ int ecall_add_item(const char* master_password, uint8_t* encrypted_data, size_t 
 	wallet->items[wallet->size] = *it;
 	++wallet->size;
 
-	//seal data
-	seal_size = local_get_sealed_data_size((uint32_t) sizeof(wallet_t));
-	encrypted_data_to_save = (uint8_t *)malloc(seal_size);
-
-	status = local_seal_data(
-		(uint8_t*) wallet,
-		sizeof(wallet_t),
-		encrypted_data_to_save,
-		seal_size
-	);
-
-	memset_s(wallet, sizeof(wallet_t), 0, sizeof(wallet_t));
-	free(wallet);
-
-	//call ocall to save persistent data
-	status = ocall_write_to_wallet(&status, (uint8_t *) encrypted_data_to_save, seal_size);
-	if(status != 0){
-		memset_s(encrypted_data_to_save, seal_size, 0, seal_size);
-		free(encrypted_data_to_save);
-		return -4;
-	}
-
-	memset_s(encrypted_data_to_save, seal_size, 0, seal_size);
-	free(encrypted_data_to_save);
+	// encrypt plain text and write into persistent memory
+	status = local_seal_and_write(wallet, sizeof(wallet_t));
 	
-	return 0;
+	return status;
 }
 
 int ecall_create_wallet(const char* master_password){
 
 	int status;
 	wallet_t* wallet;
-	uint8_t* encrypted_data_to_save;
-	uint32_t seal_size;
 
 	// check password policy
 	if (strlen(master_password) < 8 || strlen(master_password)+1 > WALLET_MAX_ITEM_SIZE) {
@@ -352,67 +326,29 @@ int ecall_create_wallet(const char* master_password){
 	wallet->size = 0;
 	strncpy(wallet->master_password, master_password, strlen(master_password)+1);
 
-	//seal data
-	seal_size = local_get_sealed_data_size((uint32_t) sizeof(wallet_t));
-	encrypted_data_to_save = (uint8_t *)malloc(seal_size);
+	// encrypt plain text and write into persistent memory
+	status = local_seal_and_write(wallet, sizeof(wallet_t));
 
-	status = local_seal_data(
-		(uint8_t*) wallet,
-		sizeof(wallet_t),
-		encrypted_data_to_save,
-		seal_size
-	);
-
-	memset_s(wallet, sizeof(wallet_t), 0, sizeof(wallet_t));
-	free(wallet);
-
-	//call ocall to save persistent data
-	status = ocall_write_to_wallet(&status, (uint8_t *) encrypted_data_to_save, seal_size);
-	if(status != 0){
-		memset_s(encrypted_data_to_save, seal_size, 0, seal_size);
-		free(encrypted_data_to_save);
-		return -4;
-	}
-
-	memset_s(encrypted_data_to_save, seal_size, 0, seal_size);
-	free(encrypted_data_to_save);
-
-	return 0;
+	return status;
 }
 
 int ecall_change_master_password(const char* old_password, const char* new_password, uint8_t* encrypted_data, size_t data_size){
 
 	int status;
-	uint32_t plain_len;
-	uint32_t seal_size;
-	uint8_t* plain_data;
 	wallet_t* wallet;
-	uint8_t* encrypted_data_to_save;
 	
 	if(old_password == NULL || new_password == NULL || encrypted_data == NULL || strcmp(old_password, new_password) == 0)
 		return -1;
 
-	plain_data = (uint8_t *)malloc(data_size);
-
-    status = local_unseal_data(
-        encrypted_data,
-        (uint32_t) data_size,
-        plain_data,
-        (uint32_t) data_size,
-        &plain_len
-    );
-
-    if (status != 0 || plain_len != sizeof(wallet_t)) {
-		free(plain_data);
-        return -2;
-    }
-
-    // Copy plaintext into caller buffer
 	wallet = (wallet_t *)malloc(sizeof(wallet_t));
-    memcpy(wallet, plain_data, sizeof(wallet_t));
-	
-	memset_s(plain_data, plain_len, 0, plain_len);
-	free(plain_data);
+
+	//read and unseal wallet data
+	status = local_read_and_unseal(encrypted_data, data_size, wallet, sizeof(wallet_t));
+	if(status != 0){
+		memset_s(wallet, sizeof(wallet_t), 0, sizeof(wallet_t));
+		free(wallet);
+		return -1;
+	}
 
 	//verify older master_password
 	if (strcmp(wallet->master_password, old_password) != 0) {
@@ -424,62 +360,29 @@ int ecall_change_master_password(const char* old_password, const char* new_passw
 	// update password
 	strncpy(wallet->master_password, new_password, strlen(new_password)+1);
 
-	//seal data
-	seal_size = local_get_sealed_data_size((uint32_t) sizeof(wallet_t));
-	encrypted_data_to_save = (uint8_t *)malloc(seal_size);
+	// encrypt plain text and write into persistent memory
+	status = local_seal_and_write(wallet, sizeof(wallet_t));
 
-	status = local_seal_data(
-		(uint8_t*) wallet,
-		sizeof(wallet_t),
-		encrypted_data_to_save,
-		seal_size
-	);
-
-	memset_s(wallet, sizeof(wallet_t), 0, sizeof(wallet_t));
-	free(wallet);
-
-	//call ocall to save persistent data
-	status = ocall_write_to_wallet(&status, (uint8_t *) encrypted_data_to_save, seal_size);
-	if(status != 0){
-		memset_s(encrypted_data_to_save, seal_size, 0, seal_size);
-		free(encrypted_data_to_save);
-		return -4;
-	}
-
-	memset_s(encrypted_data_to_save, seal_size, 0, seal_size);
-	free(encrypted_data_to_save);
-
-	return 0;
+	return status;
 }
 
 int ecall_show_wallet(const char* master_password, uint8_t* encrypted_data, size_t data_size){
 
 	int status;
-	uint32_t plain_len;
-	uint8_t* plain_data;
 	wallet_t* wallet;
 
 	if(master_password == NULL || encrypted_data == NULL)
 		return -1;
 
-	plain_data = (uint8_t *)malloc(data_size);
+	wallet = (wallet_t *)malloc(sizeof(wallet_t));;
 
-    status = local_unseal_data(
-        encrypted_data,
-        (uint32_t) data_size,
-        plain_data,
-        (uint32_t) data_size,
-        &plain_len
-    );
-	
-	if (status != 0) {
-		free(plain_data);
-        return -2;
-    }
-
-	// Copy plaintext into caller buffer
-	wallet = (wallet_t *)malloc(sizeof(wallet_t));
-    memcpy(wallet, plain_data, sizeof(wallet_t));
+	//read and unseal wallet data
+	status = local_read_and_unseal(encrypted_data, data_size, wallet, sizeof(wallet_t));
+	if(status != 0){
+		memset_s(wallet, sizeof(wallet_t), 0, sizeof(wallet_t));
+		free(wallet);
+		return -1;
+	}
 
 	//verify master_password
 	if (strcmp(wallet->master_password, master_password) != 0) {
@@ -487,14 +390,12 @@ int ecall_show_wallet(const char* master_password, uint8_t* encrypted_data, size
 		free(wallet);
 		return -3;
 	}
+
+    //call ocall to save persistent data
+	ocall_print_wallet((uint8_t*)wallet, sizeof(wallet_t));
+	
 	memset_s(wallet, sizeof(wallet_t), 0, sizeof(wallet_t));
 	free(wallet);
 
-    //call ocall to save persistent data
-	ocall_print_wallet(plain_data, plain_len);
-	
-	memset_s(plain_data, plain_len, 0, plain_len);
-	free(plain_data);
-
-	return 0;
+	return status;
 }

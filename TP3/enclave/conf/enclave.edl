@@ -24,7 +24,5 @@ enclave {
 
 		public int ecall_show_wallet([in, string]const char* master_password, [in, size=data_size] uint8_t* encrypted_data, size_t data_size);
 
-		public uint32_t ecall_get_sealed_data_size(uint32_t plaintext_len);
-
 	};
 };

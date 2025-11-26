@@ -299,12 +299,12 @@ clean_test:
 
 smoke_test:
 ifneq ($(Build_Mode), HW_RELEASE)
-	@cd scripts && env LD_LIBRARY_PATH=$(SGX_LIBRARY_PATH):$$LD_LIBRARY_PATH ./smoke_test.sh
+	env LD_LIBRARY_PATH=$(SGX_LIBRARY_PATH):$$LD_LIBRARY_PATH ./scripts/smoke_test.sh
 	@echo "RUN  =>  $(APP_NAME) [$(SGX_MODE)|$(SGX_ARCH), OK]"
 endif
 
 size_test:
 ifneq ($(Build_Mode), HW_RELEASE)
-	@cd scripts && env LD_LIBRARY_PATH=$(SGX_LIBRARY_PATH):$$LD_LIBRARY_PATH ./size_test.sh
+	env LD_LIBRARY_PATH=$(SGX_LIBRARY_PATH):$$LD_LIBRARY_PATH ./scripts/size_test.sh
 	@echo "RUN  =>  $(APP_NAME) [$(SGX_MODE)|$(SGX_ARCH), OK]"
 endif

@@ -31,7 +31,12 @@ fi
 echo "Using LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
 
 echo "1) Create wallet"
-bash "$EWALLET_WRAPPER" -p testpass123 -n || { echo "Create failed"; exit 1; }
+bash "$EWALLET_WRAPPER" -p testpass123 -n
+ret=$?
+if [ $ret -ne 0 ]; then
+    echo "Create failed (exit $ret)"
+    exit $retsmoke_test
+fi
 
 echo "2) Show wallet (expect 0 items)"
 bash "$EWALLET_WRAPPER" -p testpass123 -s || { echo "Show failed"; exit 1; }

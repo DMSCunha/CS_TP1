@@ -6,9 +6,23 @@
 #include "sgx_tcrypto.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
+#include <stdarg.h>
 #include "enclave.h"
 
+static int local_printf( const char *fmt, ... )
+{
+	char buf[BUFSIZ] = {'\0'};
+	va_list ap;
 
+	va_start( ap, fmt );
+	vsnprintf(buf, BUFSIZ, fmt, ap);
+	va_end( ap );
+
+	ocall_print_string(buf );
+
+    return ( (int) strnlen( buf, BUFSIZ - 1 ) + 1 );
+}
 
 /**
  * @brief Return the size (in bytes) required to hold sealed data
@@ -17,7 +31,7 @@
  * 
  * @return 0 on failure, number of bytesthat can be sealed.
  */
-uint32_t ecall_get_sealed_data_size(uint32_t plaintext_len)
+static uint32_t local_get_sealed_data_size(uint32_t plaintext_len)
 {
 	uint32_t sealed_size = sgx_calc_sealed_data_size(0, plaintext_len);
 	return sealed_size; /* if 0, sealing not possible */
@@ -34,13 +48,14 @@ uint32_t ecall_get_sealed_data_size(uint32_t plaintext_len)
  *
  * @return 0 on success, non-zero on failure.
  */
-int ecall_seal_data(uint8_t* plaintext, uint32_t plaintext_len,
+static int local_seal_data(const uint8_t* plaintext, uint32_t plaintext_len,
 					uint8_t* sealed_data, uint32_t sealed_size)
 {
 	if (plaintext == NULL || plaintext_len == 0 || sealed_data == NULL || sealed_size == 0) {
 		return -1;
 	}
 
+	// sealing already uses AES-GCM with 128-bits 
 	sgx_status_t ret = sgx_seal_data(0, NULL, plaintext_len, plaintext,
 									 sealed_size, (sgx_sealed_data_t*) sealed_data);
 	if (ret != SGX_SUCCESS) {
@@ -61,7 +76,7 @@ int ecall_seal_data(uint8_t* plaintext, uint32_t plaintext_len,
  *
  * @return 0 on success, non-zero on failure.
  */
-int ecall_unseal_data(uint8_t* sealed_data, uint32_t sealed_size,
+static int local_unseal_data(const uint8_t* sealed_data, uint32_t sealed_size,
 					  uint8_t* plaintext, uint32_t plaintext_len,
 					  uint32_t* plaintext_ret_len)
 {
@@ -76,6 +91,7 @@ int ecall_unseal_data(uint8_t* sealed_data, uint32_t sealed_size,
 									   NULL, &additional_mac_len,
 									   plaintext, &out_text_len);
 	if (ret != SGX_SUCCESS) {
+		ocall_print_string("I WAS HERE IN ENCLAVE 2.2\n");
 		return -2;
 	}
 
@@ -83,140 +99,72 @@ int ecall_unseal_data(uint8_t* sealed_data, uint32_t sealed_size,
 	return 0;
 }
 
-/**
- * @brief Helper: derive AES key from master password using SHA256
- * 
- * @param[in]   password  master password used to derive new keys
- * @param[out]  key_out   new key created form the master
- * 
- * @return 0 on success, non-zero on failure.
- */
-static int derive_key_from_password(const char* password, uint8_t* key_out)
-{
-	sgx_sha256_hash_t hash;
-	/* cast length to uint32_t to silence warnings on size_t -> uint32_t */
-	sgx_status_t ret = sgx_sha256_msg((const uint8_t*)password, (uint32_t)strlen(password), &hash);
-	if (ret != SGX_SUCCESS) {
-		return -1;
-	}
-	/* Use first 16 bytes of hash as AES-128 key */
-	memcpy(key_out, hash, AES_GCM_KEY_SIZE);
 
-	//clear hash
-	memset_s(hash, sizeof(sgx_sha256_hash_t), 0, sizeof(sgx_sha256_hash_t));
-	return 0;
-}
+// This function ensure the wallet memory is free
+static int local_seal_and_write(wallet_t *wallet, size_t wallet_size){
+	
+	int status = 0;
+	uint32_t seal_size;
+	uint8_t* encrypted_data_to_save;
+	
+	//seal data
+	seal_size = local_get_sealed_data_size((uint32_t) wallet_size);
+	encrypted_data_to_save = (uint8_t *)malloc(seal_size);
 
-/**
- * @brief Encrypt wallet data using AES-GCM with master password.
- *
- *
- * @param[in]  plaintext         Input buffer containing wallet data to encrypt.
- * @param[in]  plaintext_len     Length of the plaintext in bytes.
- * @param[in]  master_password   Master password used encrypte the data.
- * @param[out] ciphertext        Output buffer that receives the encrypted data.
- * @param[in]  ciphertext_len    Size of the ciphertext output buffer.
- * @param[out] iv                Output buffer for the AES-GCM initialization vector.
- * @param[out] mac               Output buffer for the AES-GCM authentication tag.
- *
- * @return 0 on success, non-zero on failure.
- */
-int ecall_encrypt_wallet(uint8_t* plaintext, uint32_t plaintext_len,
-						 const char* master_password,
-						 uint8_t* ciphertext, uint32_t ciphertext_len,
-						 uint8_t* iv, uint8_t* mac)
-{
-	if (plaintext == NULL || master_password == NULL || ciphertext == NULL || iv == NULL || mac == NULL) {
-		return -1;
-	}
+	status = local_seal_data(
+		(uint8_t*) wallet,
+		(uint32_t) wallet_size,
+		encrypted_data_to_save,
+		seal_size
+	);
 
-	if (ciphertext_len < plaintext_len) {
-		return -2;
-	}
+	memset_s(wallet, wallet_size, 0, wallet_size);
+	free(wallet);
 
-	/* Derive encryption key from master password */
-	uint8_t key[AES_GCM_KEY_SIZE];
-	if (derive_key_from_password(master_password, key) != 0) {
-		return -3;
-	}
-
-	/* Generate random IV */
-	sgx_status_t ret = sgx_read_rand(iv, AES_GCM_IV_SIZE);
-	if (ret != SGX_SUCCESS) {
+	//call ocall to save persistent data
+	status = ocall_write_to_wallet(&status, (uint8_t *) encrypted_data_to_save, seal_size);
+	if(status != 0){
+		memset_s(encrypted_data_to_save, seal_size, 0, seal_size);
+		free(encrypted_data_to_save);
 		return -4;
 	}
 
-	/* Encrypt using AES-GCM */
-	ret = sgx_rijndael128GCM_encrypt(
-		(const sgx_aes_gcm_128bit_key_t*)key,
-		plaintext, plaintext_len,
-		ciphertext,
-		iv, AES_GCM_IV_SIZE,
-		NULL, 0,  /* no additional authenticated data */
-		(sgx_aes_gcm_128bit_tag_t*)mac
-	);
+	memset_s(encrypted_data_to_save, seal_size, 0, seal_size);
+	free(encrypted_data_to_save);	
 
-	/* Clear key from memory */
-	memset_s(key, AES_GCM_KEY_SIZE, 0, AES_GCM_KEY_SIZE);
-
-	if (ret != SGX_SUCCESS) {
-		return -5;
-	}
-
-	return 0;
+	return status;
 }
 
-/**
- * @brief Decrypt wallet data using AES-GCM with master password.
- *
- * @param[in]  ciphertext       Encrypted data.
- * @param[in]  ciphertext_len   Length of the encrypted data in bytes.
- * @param[in]  master_password  Master password to decrypte the encrypted data.
- * @param[in]  iv               Initialization vector (nonce) used for AES-GCM.
- * @param[in]  mac              Authentication tag associated with the data.
- * @param[out] plaintext        Output buffer where decrypted wallet data is written.
- * @param[in]  plaintext_len    Size of the plaintext output buffer.
- *
- * @return 0 on success, non-zero on failure.
- */
-int ecall_decrypt_wallet(uint8_t* ciphertext, uint32_t ciphertext_len,
-						 const char* master_password,
-						 uint8_t* iv, uint8_t* mac,
-						 uint8_t* plaintext, uint32_t plaintext_len)
-{
-	if (ciphertext == NULL || master_password == NULL || iv == NULL || mac == NULL || plaintext == NULL) {
-		return -1;
-	}
+//this functions allocates memory for the wallet pointer
+static int local_read_and_unseal(uint8_t* encrypted_data, size_t data_size, wallet_t *wallet, size_t wallet_size){
+	
+	int status = 0;
+	uint32_t plain_len;
+	uint8_t* plain_data = (uint8_t *)malloc(data_size);
 
-	if (plaintext_len < ciphertext_len) {
-		return -2;
-	}
+    status = local_unseal_data(
+        encrypted_data,
+        (uint32_t) data_size,
+        plain_data,
+        (uint32_t) data_size,
+        &plain_len
+    );
 
-	/* Derive decryption key from master password */
-	uint8_t key[AES_GCM_KEY_SIZE];
-	if (derive_key_from_password(master_password, key) != 0) {
-		return -3;
-	}
+    if (status != 0 || plain_len != wallet_size) {
+		free(plain_data);
+        return -2;
+    }
 
-	/* Decrypt using AES-GCM */
-	sgx_status_t ret = sgx_rijndael128GCM_decrypt(
-		(const sgx_aes_gcm_128bit_key_t*)key,
-		ciphertext, ciphertext_len,
-		plaintext,
-		iv, AES_GCM_IV_SIZE,
-		NULL, 0,  /* no additional authenticated data */
-		(const sgx_aes_gcm_128bit_tag_t*)mac
-	);
+    // Copy plaintext into caller buffer
+    memcpy(wallet, plain_data, wallet_size);
+	
+	memset_s(plain_data, plain_len, 0, plain_len);
+	free(plain_data);
 
-	/* Clear key from memory */
-	memset_s(key, AES_GCM_KEY_SIZE, 0, AES_GCM_KEY_SIZE);
-
-	if (ret != SGX_SUCCESS) {
-		return -4;  /* Decryption failed or MAC verification failed */
-	}
-
-	return 0;
+	return status;
 }
+
+//wallet_t* wallet = (wallet_t *)malloc(sizeof(wallet_t));
 
 /**
  * @brief Generate a secure random password.
@@ -226,9 +174,9 @@ int ecall_decrypt_wallet(uint8_t* ciphertext, uint32_t ciphertext_len,
  *
  * @return 0 on success, non-zero on failure.
  */
-int ecall_generate_password(char* password, uint32_t length)
+int ecall_generate_password(uint32_t length)
 {
-	if (password == NULL || length < 8 || length > WALLET_MAX_ITEM_SIZE) {
+	if (length < 8 || length > WALLET_MAX_ITEM_SIZE) {
 		return -1;
 	}
 
@@ -238,6 +186,7 @@ int ecall_generate_password(char* password, uint32_t length)
 						   "!@#$%^&*(){}[]:<>?,./";
 	const size_t charset_size = sizeof(charset) - 1;
 
+	char* password = (char*)malloc(length);
 	uint8_t* rand_bytes = (uint8_t*)malloc(length);
 	if (rand_bytes == NULL) {
 		return -2;
@@ -245,6 +194,7 @@ int ecall_generate_password(char* password, uint32_t length)
 
 	sgx_status_t ret = sgx_read_rand(rand_bytes, length);
 	if (ret != SGX_SUCCESS) {
+		memset_s(rand_bytes, length, 0, length);
 		free(rand_bytes);
 		return -3;
 	}
@@ -255,45 +205,197 @@ int ecall_generate_password(char* password, uint32_t length)
 	}
 	password[length - 1] = '\0';
 
-	//clear memory allocated
 	memset_s(rand_bytes, length, 0, length);
 	free(rand_bytes);
+
+	//call the ocall to print new password
+	int len_print = local_printf(password);
+	if(len_print == 0){
+		memset_s(password, length, 0, length);
+		free(password);
+		return -4;
+	}
+
+	//clear memory allocated
+	memset_s(password, length, 0, length);
+	free(password);
 	return 0;
 }
 
+int ecall_remove_item(const char* master_password, uint8_t* encrypted_data, size_t data_size, int index){
 
-/**
- * @brief Verify master password by attempting to decrypt.
- *
- * @param[in] encrypted_wallet  Buffer containing the encrypted wallet.
- * @param[in] encrypted_len     Length of the encrypted wallet in bytes.
- * @param[in] master_password   Master password.
- * @param[in] iv                Initialization vector (nonce) used for AES-GCM.
- * @param[in] mac               Authentication tag for AES-GCM.
- *
- * @return 0 on success, non-zero on failure.
- */
-int ecall_verify_password(uint8_t* encrypted_wallet, uint32_t encrypted_len,
-						  const char* master_password,
-						  uint8_t* iv, uint8_t* mac)
-{
-	if (encrypted_wallet == NULL || master_password == NULL || iv == NULL || mac == NULL) {
+	int status;
+	wallet_t* wallet;
+	
+	if(master_password == NULL || encrypted_data == NULL)
+		return -1;
+
+	wallet = (wallet_t *)malloc(sizeof(wallet_t));
+
+	//read and unseal wallet data
+	status = local_read_and_unseal(encrypted_data, data_size, wallet, sizeof(wallet_t));
+	if(status != 0){
+		memset_s(wallet, sizeof(wallet_t), 0, sizeof(wallet_t));
+		free(wallet);
 		return -1;
 	}
 
-	uint8_t* temp_buffer = (uint8_t*)malloc(encrypted_len);
-	if (temp_buffer == NULL) {
-		return -2;
+	// verify master-password
+	if (strcmp(wallet->master_password, master_password) != 0) {
+		memset_s(wallet, sizeof(wallet_t), 0, sizeof(wallet_t));
+		free(wallet);
+		return -3;
 	}
 
-	int result = ecall_decrypt_wallet(encrypted_wallet, encrypted_len,
-									   master_password, iv, mac,
-									   temp_buffer, encrypted_len);
+	//verify if item exists
+	if ((size_t)index >= wallet->size) {
+		memset_s(wallet, sizeof(wallet_t), 0, sizeof(wallet_t));
+		free(wallet);
+		return -4;
+	}
 
-	/* Clear temporary buffer */
-	memset_s(temp_buffer,encrypted_len,0, encrypted_len);
-	free(temp_buffer);
+	//remove item
+	for (size_t i = (size_t)index; i < wallet->size-1; ++i) {
+		wallet->items[i] = wallet->items[i+1];
+	}
+	--wallet->size;
 
-	return result;  /* 0 if password is correct, negative otherwise */
+	// encrypt plain text and write into persistent memory
+	status = local_seal_and_write(wallet, sizeof(wallet_t));
+	
+	return status;
 }
 
+int ecall_add_item(const char* master_password, uint8_t* encrypted_data, size_t data_size, uint8_t* item, size_t item_size){
+	
+	(void)item_size;
+	int status;
+	wallet_t* wallet;
+	
+	if(master_password == NULL || encrypted_data == NULL || item == NULL)
+		return -1;
+
+	wallet = (wallet_t *)malloc(sizeof(wallet_t));
+
+	//read and unseal wallet data
+	status = local_read_and_unseal(encrypted_data, data_size, wallet, sizeof(wallet_t));
+	if(status != 0){
+		memset_s(wallet, sizeof(wallet_t), 0, sizeof(wallet_t));
+		free(wallet);
+		return -1;
+	}
+
+	// verify master-password
+	if (strcmp(wallet->master_password, master_password) != 0) {
+		memset_s(wallet, sizeof(wallet_t), 0, sizeof(wallet_t));
+		free(wallet);
+		return -3;
+	}
+
+	// try to add item
+	if (wallet->size >= WALLET_MAX_ITEMS) {
+		memset_s(wallet, sizeof(wallet_t), 0, sizeof(wallet_t));
+		free(wallet);
+		return -4;
+	}
+	
+	const item_t *it = (const item_t *)item;
+
+	wallet->items[wallet->size] = *it;
+	++wallet->size;
+
+	// encrypt plain text and write into persistent memory
+	status = local_seal_and_write(wallet, sizeof(wallet_t));
+	
+	return status;
+}
+
+int ecall_create_wallet(const char* master_password){
+
+	int status;
+	wallet_t* wallet;
+
+	// check password policy
+	if (strlen(master_password) < 8 || strlen(master_password)+1 > WALLET_MAX_ITEM_SIZE) {
+		return -1;
+	}
+
+	// allocate memory
+	wallet = (wallet_t*)malloc(sizeof(wallet_t));
+
+	wallet->size = 0;
+	strncpy(wallet->master_password, master_password, strlen(master_password)+1);
+
+	// encrypt plain text and write into persistent memory
+	status = local_seal_and_write(wallet, sizeof(wallet_t));
+
+	return status;
+}
+
+int ecall_change_master_password(const char* old_password, const char* new_password, uint8_t* encrypted_data, size_t data_size){
+
+	int status;
+	wallet_t* wallet;
+	
+	if(old_password == NULL || new_password == NULL || encrypted_data == NULL || strcmp(old_password, new_password) == 0)
+		return -1;
+
+	wallet = (wallet_t *)malloc(sizeof(wallet_t));
+
+	//read and unseal wallet data
+	status = local_read_and_unseal(encrypted_data, data_size, wallet, sizeof(wallet_t));
+	if(status != 0){
+		memset_s(wallet, sizeof(wallet_t), 0, sizeof(wallet_t));
+		free(wallet);
+		return -1;
+	}
+
+	//verify older master_password
+	if (strcmp(wallet->master_password, old_password) != 0) {
+		memset_s(wallet, sizeof(wallet_t), 0, sizeof(wallet_t));
+		free(wallet);
+		return -3;
+	}
+
+	// update password
+	strncpy(wallet->master_password, new_password, strlen(new_password)+1);
+
+	// encrypt plain text and write into persistent memory
+	status = local_seal_and_write(wallet, sizeof(wallet_t));
+
+	return status;
+}
+
+int ecall_show_wallet(const char* master_password, uint8_t* encrypted_data, size_t data_size){
+
+	int status;
+	wallet_t* wallet;
+
+	if(master_password == NULL || encrypted_data == NULL)
+		return -1;
+
+	wallet = (wallet_t *)malloc(sizeof(wallet_t));;
+
+	//read and unseal wallet data
+	status = local_read_and_unseal(encrypted_data, data_size, wallet, sizeof(wallet_t));
+	if(status != 0){
+		memset_s(wallet, sizeof(wallet_t), 0, sizeof(wallet_t));
+		free(wallet);
+		return -1;
+	}
+
+	//verify master_password
+	if (strcmp(wallet->master_password, master_password) != 0) {
+		memset_s(wallet, sizeof(wallet_t), 0, sizeof(wallet_t));
+		free(wallet);
+		return -3;
+	}
+
+    //call ocall to save persistent data
+	ocall_print_wallet((uint8_t*)wallet, sizeof(wallet_t));
+	
+	memset_s(wallet, sizeof(wallet_t), 0, sizeof(wallet_t));
+	free(wallet);
+
+	return status;
+}

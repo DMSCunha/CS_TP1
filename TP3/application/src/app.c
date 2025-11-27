@@ -101,7 +101,7 @@ int main(int argc, char** argv) {
                     sprintf(err_message, "Unknown option `-%c'.", optopt);
                 }
                 else {
-                    sprintf(err_message, "Unknown option character `\\x%x'.",optopt);
+                    sprintf(err_message, "Unknown option character `\\x %x'.",optopt);
                 }
                 stop = 1;
                 printf("[ERROR] %s\n", err_message);
@@ -132,18 +132,13 @@ int main(int argc, char** argv) {
             	pwd_size = atoi(l_value) + 1;
             }
 
-			/* pwd_size already counts bytes (includes space for terminator), no need for sizeof(char) */
-			char* pwd = (char *)malloc((size_t)pwd_size);
-
-            ret = generate_password(pwd, pwd_size);
+            ret = generate_password(pwd_size);
             if (is_error(ret)) {
             	printf("[ERROR] Failed to generate the password.\n");
             }
             else {
             	printf("[INFO] Password successfully generated.\n");
-            	printf("The generated password is %s\n", pwd);
             }
-            free(pwd);
         }
 
         // create new wallet
@@ -170,16 +165,13 @@ int main(int argc, char** argv) {
 
 		// show wallet
 		else if(p_value!=NULL && s_flag) {
-			wallet_t* wallet = (wallet_t*)malloc(sizeof(wallet_t));
-			ret = show_wallet(p_value, wallet, sizeof(wallet_t));
+			ret = show_wallet(p_value);
             if (is_error(ret)) {
             	printf("[ERROR] Failed to retrieve eWallet.\n");
             }
             else {
             	printf("[INFO] eWallet successfully retrieved.\n");
-            	print_wallet(wallet);
             }
-            free(wallet);
         }
 
         // add item
@@ -195,6 +187,7 @@ int main(int argc, char** argv) {
             else {
             	printf("[INFO] Item successfully added to the eWallet.\n");
             }
+			memset(new_item, 0, sizeof(item_t));
             free(new_item);
         }
 
@@ -224,7 +217,7 @@ int main(int argc, char** argv) {
     }
 
     sgx_destroy_enclave(global_eid);
-    return 0;
+    return ret;
 }
 
 void show_help(void) {
@@ -235,14 +228,14 @@ void show_help(void) {
 	printf("\nUsage: %s %s\n\n", APP_NAME, command);
 }
 
-int generate_password(char *p_value, int p_length) {
+int generate_password(int p_length) {
 	// check password policy
 	if (p_length < 8 || p_length > WALLET_MAX_ITEM_SIZE) {
 		return ERR_PASSWORD_OUT_OF_RANGE;
 	}
 
 	int e_ret = 0;
-	sgx_status_t st = ecall_generate_password(global_eid, &e_ret, p_value, (uint32_t)p_length);
+	sgx_status_t st = ecall_generate_password(global_eid, &e_ret, (uint32_t)p_length);
 
 	if (st != SGX_SUCCESS || e_ret != 0) {
 		return ERR_PASSWORD_OUT_OF_RANGE;
@@ -254,10 +247,10 @@ int generate_password(char *p_value, int p_length) {
 int create_wallet(const char* master_password) {
 
 	int ret;
+	int e_ret;
 
-	// check password policy
-	if (strlen(master_password) < 8 || strlen(master_password)+1 > WALLET_MAX_ITEM_SIZE) {
-		return ERR_PASSWORD_OUT_OF_RANGE;
+	if (master_password == NULL){
+		return -1;
 	}
 
 	// abort if wallet already exist
@@ -266,80 +259,88 @@ int create_wallet(const char* master_password) {
 		return ERR_WALLET_ALREADY_EXISTS;
 	}
 
-	// create new wallet
-	wallet_t* wallet = (wallet_t*)malloc(sizeof(wallet_t));
-	wallet->size = 0;
-	strncpy(wallet->master_password, master_password, strlen(master_password)+1);
-
-	// save wallet
-	ret = save_wallet(wallet, sizeof(wallet_t));
-	free(wallet);
-	if (ret != 0) {
-		return ERR_CANNOT_SAVE_WALLET;
+	// enclave call to create the wallet
+	ret = ecall_create_wallet(global_eid, &e_ret, master_password);
+	if(e_ret != SGX_SUCCESS || ret != 0){
+		return ERR_CANNOT_LOAD_WALLET;
 	}
 
 	return RET_SUCCESS;
 }
 
-int show_wallet(const char* master_password, wallet_t* wallet, size_t wallet_size) {
+int show_wallet(const char* master_password) {
 
 	int ret;
+	int e_ret;
+    
+    uint32_t sealed_size;
+	uint8_t* encrypted_data;
 
-	// load wallet (use provided master_password to decrypt)
-	ret = load_wallet(master_password, wallet, sizeof(wallet_t));
-	if (ret != 0) {
+	ret = load_wallet(&encrypted_data, (uint32_t *)&sealed_size);
+	if(ret != 0){
+		free(encrypted_data);
 		return ERR_CANNOT_LOAD_WALLET;
 	}
 
-	// verify master-password
-	if (strcmp(wallet->master_password, master_password) != 0) {
-		return ERR_WRONG_MASTER_PASSWORD;
+	// enclave call to change master_password
+	ret = ecall_show_wallet(global_eid, &e_ret,
+		master_password, encrypted_data, (size_t)sealed_size);
+
+	if(e_ret != SGX_SUCCESS || ret != 0){
+        memset(encrypted_data, 0, sealed_size);
+        free(encrypted_data);
+		return ERR_CANNOT_LOAD_WALLET;
 	}
 
-	(void)wallet_size; /* unused currently */
+	memset(encrypted_data, 0, sealed_size);
+	free(encrypted_data);
 	return RET_SUCCESS;
 }
 
 int change_master_password(const char* old_password, const char* new_password) {
 
 	int ret;
+	int e_ret;
+	uint8_t* encrypted_data;
+    uint32_t sealed_size;
 
 	// check password policy
 	if (strlen(new_password) < 8 || strlen(new_password)+1 > WALLET_MAX_ITEM_SIZE) {
 		return ERR_PASSWORD_OUT_OF_RANGE;
 	}
 
-	// load wallet
-	wallet_t* wallet = (wallet_t*)malloc(sizeof(wallet_t));
-	ret = load_wallet(old_password, wallet, sizeof(wallet_t));
-	if (ret != 0) {
-		free(wallet);
+	/// load wallet
+	ret = load_wallet(&encrypted_data, (uint32_t *)&sealed_size);
+	if(ret != 0){
+		free(encrypted_data);
 		return ERR_CANNOT_LOAD_WALLET;
 	}
 
-	// verify master-password
-	if (strcmp(wallet->master_password, old_password) != 0) {
-		free(wallet);
-		return ERR_WRONG_MASTER_PASSWORD;
+	// enclave call to change master_password
+	ret = ecall_change_master_password(global_eid, &e_ret,
+		old_password, new_password, encrypted_data, sealed_size);
+
+	if(e_ret != SGX_SUCCESS || ret != 0){
+		free(encrypted_data);
+		return ERR_CANNOT_LOAD_WALLET;
 	}
 
-	// update password
-	strncpy(wallet->master_password, new_password, strlen(new_password)+1);
-
-	// save wallet
-	ret = save_wallet(wallet, sizeof(wallet_t));
-	free(wallet);
-	if (ret != 0) {
-		return ERR_CANNOT_SAVE_WALLET;
-	}
-
+	memset(encrypted_data, 0, sealed_size);
+	free(encrypted_data);
 	return RET_SUCCESS;
 }
 
 
-int add_item(const char* master_password, const item_t* item, const size_t item_size) {
+int add_item(const char* master_password, item_t* item, const size_t item_size) {
 
 	int ret;
+	int e_ret;
+    uint32_t sealed_size;
+	uint8_t* encrypted_data; 
+
+	if(item == NULL || master_password == NULL){
+		return -1;
+	}
 
 	// check input length
 	if (strlen(item->title)+1 > WALLET_MAX_ITEM_SIZE ||
@@ -349,38 +350,24 @@ int add_item(const char* master_password, const item_t* item, const size_t item_
     }
 
 	// load wallet
-	wallet_t* wallet = (wallet_t*)malloc(sizeof(wallet_t));
-	ret = load_wallet(master_password, wallet, sizeof(wallet_t));
-	if (ret != 0) {
-		free(wallet);
+	ret = load_wallet(&encrypted_data, (uint32_t *)&sealed_size);
+	if(ret != 0){
+		free(encrypted_data);
 		return ERR_CANNOT_LOAD_WALLET;
 	}
 
-	// verify master-password
-	if (strcmp(wallet->master_password, master_password) != 0) {
-		free(wallet);
-		return ERR_WRONG_MASTER_PASSWORD;
-	}
+	// enclave call to add the item
+	ret = ecall_add_item(global_eid, &e_ret,
+		master_password, encrypted_data, sealed_size, (uint8_t*)item, item_size);
 
-	// add item to the wallet
-	(void)item_size; /* unused parameter */
-	size_t wallet_size = wallet->size;
-	if (wallet_size >= WALLET_MAX_ITEMS) {
-		free(wallet);
-		return ERR_WALLET_FULL;
-	}
-
-	wallet->items[wallet_size] = *item;
-	++wallet->size;
-
-	// save wallet
-	ret = save_wallet(wallet, sizeof(wallet_t));
-	free(wallet);
-	if (ret != 0) {
-		return ERR_CANNOT_SAVE_WALLET;
+	if(e_ret != SGX_SUCCESS || ret != 0){
+		free(encrypted_data);
+		return ERR_CANNOT_LOAD_WALLET;
 	}
 
 	// exit
+	memset(encrypted_data, 0, sealed_size);
+	free(encrypted_data);
 	return RET_SUCCESS;
 }
 
@@ -388,191 +375,58 @@ int add_item(const char* master_password, const item_t* item, const size_t item_
 int remove_item(const char* master_password, const int index) {
 
 	int ret;
+	int e_ret;
+	uint8_t* encrypted_data;
+    uint32_t sealed_size;
 
 	// check index bounds
 	if (index < 0 || index >= WALLET_MAX_ITEMS) {
 		return ERR_ITEM_DOES_NOT_EXIST;
 	}
 
-	// 2. load wallet
-	wallet_t* wallet = (wallet_t*)malloc(sizeof(wallet_t));
-	ret = load_wallet(master_password, wallet, sizeof(wallet_t));
-	if (ret != 0) {
-		free(wallet);
+	// load wallet
+	ret = load_wallet(&encrypted_data, (uint32_t *)&sealed_size);
+	if(ret != 0){
+		free(encrypted_data);
 		return ERR_CANNOT_LOAD_WALLET;
 	}
 
-	// verify master-password
-	if (strcmp(wallet->master_password, master_password) != 0) {
-		free(wallet);
-		return ERR_WRONG_MASTER_PASSWORD;
-	}
+	// enclave call to remove the item
+	ret = ecall_remove_item(global_eid, &e_ret,
+		master_password, encrypted_data, sealed_size, index);
 
-	// remove item from the wallet
-	size_t wallet_size = wallet->size;
-	if ((size_t)index >= wallet_size) {
-		free(wallet);
-		return ERR_ITEM_DOES_NOT_EXIST;
-	}
-	for (size_t i = (size_t)index; i < wallet_size-1; ++i) {
-		wallet->items[i] = wallet->items[i+1];
-	}
-	--wallet->size;
-
-	// save wallet
-	ret = save_wallet(wallet, sizeof(wallet_t));
-	free(wallet);
-	if (ret != 0) {
-		return ERR_CANNOT_SAVE_WALLET;
+	if(e_ret != SGX_SUCCESS || ret != 0){
+		free(encrypted_data);
+		return ret;
 	}
 
 	// exit
+	memset(encrypted_data, 0, sealed_size);
+	free(encrypted_data);
 	return RET_SUCCESS;
 }
 
-int save_wallet(wallet_t* wallet, const size_t wallet_size) {
-	/* Encrypt wallet with master password using enclave */
-	uint32_t plaintext_len = (uint32_t)wallet_size;
-	uint8_t* ciphertext = (uint8_t*)malloc(plaintext_len);
-	uint8_t iv[AES_GCM_IV_SIZE];
-	uint8_t mac[AES_GCM_MAC_SIZE];
 
-	if (ciphertext == NULL) {
-		return 1;
-	}
-
-	int e_ret = 0;
-	sgx_status_t st = ecall_encrypt_wallet(global_eid, &e_ret,
-		(uint8_t*)wallet, plaintext_len,
-		wallet->master_password,
-		ciphertext, plaintext_len,
-		iv, mac);
-
-	if (st != SGX_SUCCESS || e_ret != 0) {
-		free(ciphertext);
-		return 1;
-	}
-
-	/* Seal the encrypted wallet */
-	uint32_t sealed_size = 0;
-	st = ecall_get_sealed_data_size(global_eid, &sealed_size, plaintext_len);
-	if (st != SGX_SUCCESS || sealed_size == 0) {
-		free(ciphertext);
-		return 1;
-	}
-
-	uint8_t* sealed_data = (uint8_t*)malloc(sealed_size);
-	if (sealed_data == NULL) {
-		free(ciphertext);
-		return 1;
-	}
-
-	e_ret = 0;
-	st = ecall_seal_data(global_eid, &e_ret,
-		ciphertext, plaintext_len,
-		sealed_data, sealed_size);
-	free(ciphertext);
-
-	if (st != SGX_SUCCESS || e_ret != 0) {
-		free(sealed_data);
-		return 1;
-	}
-
-	/* Write IV, MAC, and sealed data to file */
-	FILE* fp = fopen(WALLET_FILE, "wb");
-	if (fp == NULL) {
-		free(sealed_data);
-		return 1;
-	}
-
-	fwrite(iv, 1, AES_GCM_IV_SIZE, fp);
-	fwrite(mac, 1, AES_GCM_MAC_SIZE, fp);
-	fwrite(sealed_data, 1, sealed_size, fp);
-	fclose(fp);
-	free(sealed_data);
-
-	return 0;
-}
-
-int load_wallet(const char* master_password, wallet_t* wallet, const size_t wallet_size) {
-	/* Read IV, MAC, and sealed data from file */
+int load_wallet(uint8_t** encrypted_data, uint32_t * buff_size) {
+	
 	FILE* fp = fopen(WALLET_FILE, "rb");
-	if (fp == NULL) {
-		return 1;
-	}
+    if (!fp) return 1;
 
-	uint8_t iv[AES_GCM_IV_SIZE];
-	uint8_t mac[AES_GCM_MAC_SIZE];
+    // get file size
+    fseek(fp, 0, SEEK_END);
+    long size = ftell(fp);
+    rewind(fp);
 
-	if (fread(iv, 1, AES_GCM_IV_SIZE, fp) != AES_GCM_IV_SIZE ||
-		fread(mac, 1, AES_GCM_MAC_SIZE, fp) != AES_GCM_MAC_SIZE) {
-		fclose(fp);
-		return 1;
-	}
+    // allocate
+    uint8_t* buf = malloc((size_t)size);
 
-	/* Get file size for sealed data */
-	if (fseek(fp, 0, SEEK_END) != 0) {
-		fclose(fp);
-		return 1;
-	}
-	long fsize = ftell(fp);
-	if (fsize <= (AES_GCM_IV_SIZE + AES_GCM_MAC_SIZE)) {
-		fclose(fp);
-		return 1;
-	}
+    // read blob
+    fread(buf, 1, (size_t)size, fp);
+    fclose(fp);
 
-	uint32_t sealed_size = (uint32_t)(fsize - AES_GCM_IV_SIZE - AES_GCM_MAC_SIZE);
-	fseek(fp, AES_GCM_IV_SIZE + AES_GCM_MAC_SIZE, SEEK_SET);
-
-	uint8_t* sealed_data = (uint8_t*)malloc(sealed_size);
-	if (sealed_data == NULL) {
-		fclose(fp);
-		return 1;
-	}
-
-	if (fread(sealed_data, 1, sealed_size, fp) != sealed_size) {
-		free(sealed_data);
-		fclose(fp);
-		return 1;
-	}
-	fclose(fp);
-
-	/* Unseal the encrypted wallet */
-	uint32_t encrypted_len = (uint32_t)wallet_size;
-	uint8_t* encrypted_wallet = (uint8_t*)malloc(encrypted_len);
-	if (encrypted_wallet == NULL) {
-		free(sealed_data);
-		return 1;
-	}
-
-	uint32_t out_len = 0;
-	int e_ret = 0;
-	sgx_status_t st = ecall_unseal_data(global_eid, &e_ret,
-		sealed_data, sealed_size,
-		encrypted_wallet, encrypted_len,
-		&out_len);
-	free(sealed_data);
-	printf("[DEBUG] ecall_unseal_data st=0x%x e_ret=%d out_len=%u\n", (unsigned)st, e_ret, out_len);
-	if (st != SGX_SUCCESS || e_ret != 0) {
-		free(encrypted_wallet);
-		return 1;
-	}
-
-	/* Decrypt wallet using master password */
-	e_ret = 0;
-	/* decrypt using user-provided master_password */
-	st = ecall_decrypt_wallet(global_eid, &e_ret,
-		encrypted_wallet, out_len,
-		master_password,
-		iv, mac,
-		(uint8_t*)wallet, (uint32_t)wallet_size);
-	free(encrypted_wallet);
-	printf("[DEBUG] ecall_decrypt_wallet st=0x%x e_ret=%d\n", (unsigned)st, e_ret);
-	if (st != SGX_SUCCESS || e_ret != 0) {
-		return 1;
-	}
-
-	return 0;
+    *encrypted_data = buf;
+    *buff_size = (uint32_t) size;
+    return 0;
 }
 
 int is_wallet(void) {
@@ -584,18 +438,6 @@ int is_wallet(void) {
     return 0;
 }
 
-void print_wallet(const wallet_t* wallet) {
-    printf("\n-----------------------------------------\n");
-    printf("Simple password eWallet.\n");
-    printf("-----------------------------------------\n");
-	printf("Number of items: %zu\n", wallet->size);
-	for (size_t i = 0; i < wallet->size; ++i) {
-		printf("\n#%zu -- %s\n", i, wallet->items[i].title);
-        printf("Username: %s\n", wallet->items[i].username);
-        printf("Password: %s\n", wallet->items[i].password);
-    }
-    printf("\n------------------------------------------\n\n");
-}
 
 int is_error(int error_code) {
     char err_message[100];

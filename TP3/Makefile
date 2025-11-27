@@ -283,6 +283,11 @@ clean:
 	@rm -f .config_* $(APP_BINDIR)/$(APP_NAME) $(ENCLAVE_BINDIR)/$(ENCLAVE_NAME) $(APP_BINDIR)/$(SIGNED_ENCLAVE_NAME) $(App_C_Objects) $(APP_SRCDIR)/enclave_u.c $(APP_INCDIR)/enclave_u.h $(Enclave_C_Objects) $(ENCLAVE_SRCDIR)/enclave_t.c $(ENCLAVE_INCDIR)/enclave_t.h
 	@echo "Cleanup complete!"
 
+.PHONY: clean_all
+clean_all:
+	@$(MAKE) clean
+	@$(MAKE) clean_test
+
 .PHONY: all_test clean_test smoke_test size_test
 all_test:
 	@$(MAKE) clean_test
@@ -292,19 +297,23 @@ all_test:
 	    echo "\n==============================================================================================================================\n"; \
 	    echo "===== Size Test started at $$(date) ====="; \
 	    $(MAKE) size_test; \
-	} >> scripts/test_log.txt 2>&1
+	}
 
 clean_test:
-	@rm -f scripts/test_log.txt
+	@rm -f scripts/*_log.txt
 
 smoke_test:
 ifneq ($(Build_Mode), HW_RELEASE)
-	@cd scripts && env LD_LIBRARY_PATH=$(SGX_LIBRARY_PATH):$$LD_LIBRARY_PATH ./smoke_test.sh
-	@echo "RUN  =>  $(APP_NAME) [$(SGX_MODE)|$(SGX_ARCH), OK]"
+	@{ \
+		env LD_LIBRARY_PATH=$(SGX_LIBRARY_PATH):$$LD_LIBRARY_PATH ./scripts/smoke_test.sh; \
+		echo "RUN  =>  $(APP_NAME) [$(SGX_MODE)|$(SGX_ARCH), OK]"; \
+	} >> scripts/smoke_test_log.txt 2>&1
 endif
 
 size_test:
 ifneq ($(Build_Mode), HW_RELEASE)
-	@cd scripts && env LD_LIBRARY_PATH=$(SGX_LIBRARY_PATH):$$LD_LIBRARY_PATH ./size_test.sh
-	@echo "RUN  =>  $(APP_NAME) [$(SGX_MODE)|$(SGX_ARCH), OK]"
+	@{ \
+		env LD_LIBRARY_PATH=$(SGX_LIBRARY_PATH):$$LD_LIBRARY_PATH ./scripts/size_test.sh; \
+		echo "RUN  =>  $(APP_NAME) [$(SGX_MODE)|$(SGX_ARCH), OK]"; \
+	} >> scripts/size_test_log.txt 2>&1
 endif

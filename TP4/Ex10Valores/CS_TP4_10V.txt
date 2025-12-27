@@ -1,0 +1,104 @@
+CS_TP4
+Pergunta de 10 valores
+=======================================================
+1. What is the IP address of the system initiating the suspicious activity?
+
+R: 172.16.226.130
+
+-------------------------------------------------------
+2. What type of reconnaissance scan was performed?
+Options:
+
+R: SYN scan
+
+-------------------------------------------------------
+3. After the scan, a connection was established using an unencrypted protocol. What protocol was used?
+
+R: FTP (File Transfer Protocol)
+
+-------------------------------------------------------
+4. Extract the authentication credentials used in this connection.
+
+Username: ncruz
+Password: ISEL
+
+-------------------------------------------------------
+5. This protocol uses two separate TCP connections. What is the control port? What is the data port used in this capture?
+
+Control port: 21
+Data port: 57298
+
+-------------------------------------------------------
+6. The data transfer used
+
+R: Passive mode
+
+-------------------------------------------------------
+7. How can you identify this mode?
+
+R: Server sent "227 Entering passive mode" command
+
+-------------------------------------------------------
+8. Why does FTP create problems for stateless firewalls
+
+R: Dynamic port negotiated during session
+
+-------------------------------------------------------
+9.What file was transferred
+
+R: ISEL.zip
+
+-------------------------------------------------------
+10. The filename suggests a ZIP archive. What is the actual file format?
+
+R: base64-encoded JPEG image
+
+-------------------------------------------------------
+11. To decode the transferred file, what should you do first?
+
+R: Decode from base64
+
+-------------------------------------------------------
+12. After decoding, analyze the image content. What historical figure appears in the image?
+
+R: Julio César
+
+-------------------------------------------------------
+13. What steganography tool was used to hide data in the image?
+
+R:
+
+-------------------------------------------------------
+14. What is the password needed to extract the hidden file?
+
+R:
+
+-------------------------------------------------------
+15. After extracting the hidden file, you will find an encoded message. What type of classical cipher was used?
+
+R:
+
+-------------------------------------------------------
+16. Extract and decode the final flag (Format: ISELCTF{...})
+
+R:
+
+-------------------------------------------------------
+17. After the file transfer, an encrypted connection was established. What protocol was used? 
+
+R: SSHv2
+
+-------------------------------------------------------
+18. Can you extract credentials or data from this encrypted traffic?
+
+R: No, because it's encrypted
+
+-------------------------------------------------------
+19. Select the main security weaknesses identified in this attack scenario
+
+R: Use of unencrypted protocol for file transfer
+
+-------------------------------------------------------
+20. Which regular expression pattern could be used in an IDS rule to detect base64-encoded content in FTP transfers?
+
+R: ^USER.*PASSWORD

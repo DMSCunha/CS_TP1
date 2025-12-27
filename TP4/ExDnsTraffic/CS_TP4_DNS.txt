@@ -1,0 +1,85 @@
+CS_TP4
+Pergunta sobre DNS
+=======================================================
+1. Analyze the DNS traffic. Which legitimate domains were queried during the capture period? Select all that apply
+
+R:
+google.com
+cloudflare.com
+ubuntu.com
+wikipedia.org
+stackoverflow.com
+
+-------------------------------------------------------
+2. Identify any DNS queries that appear anomalous or suspicious. What makes them stand out from normal DNS traffic? Select all that apply
+
+R: Subdomain labels contain hexadecimal characters
+
+-------------------------------------------------------
+3. What domain is targeted by these suspicious queries (include only the 3 first domain names - including the top level domain)?
+
+R:
+
+-------------------------------------------------------
+4. Examine the structure of the suspicious DNS queries. What encoding or representation is being used in the subdomain labels?
+
+R: Hex
+
+-------------------------------------------------------
+5. What DNS record types were used in these suspicious queries? Select all that apply
+
+R: A, AAAA e TXT
+
+-------------------------------------------------------
+7. Extract and decode the transmitted data to reveal the flag (Format: ISELCTF{...})
+
+R: A flag tá no Domain name das DNS queries 
+
+4953454c43.data1.fil.isel.pt
+4953454c43 -> ISELC
+
+54467b444e.data2.fil.isel.pt
+54467b444e -> TF{DN
+
+exfil.535f31735f.fil.isel.pt
+535f31735f -> S_1s_
+
+d4.6e30745f73.fil.isel.pt
+6e30745f73 -> n0t_s
+
+3363757233.v6.fil.isel.pt
+3363757233 -> 3cur3
+
+7d.data6.fil.isel.pt
+7d -> }
+
+Flag: ISELCTF{DNS_1s_n0t_s3cur3}
+
+-------------------------------------------------------
+8. What is this technique called?
+
+R: DNS tunneling/exfiltration
+
+-------------------------------------------------------
+9. Why is DNS attractive for data exfiltration? Select all that apply:
+
+R:
+DNS traffic is usually allowed through firewalls.
+DNS queries are rarely inspected in detail.
+
+-------------------------------------------------------
+10. What indicators could help detect this type of activity? Select all that apply:
+
+R:
+
+-------------------------------------------------------
+11. Which DNS security controls could prevent or detect this exfiltration technique? Select all that apply:
+
+R:
+Use DNS reputation services to flag suspicious domains.
+Analyze entropy of subdomain labels.
+
+-------------------------------------------------------
+12. Would DNSSEC prevent this type of attack?
+
+R: No, DNSSEC only validates response authenticity, not query content.

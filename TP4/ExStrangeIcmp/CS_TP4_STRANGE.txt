@@ -1,0 +1,78 @@
+CS_TP4
+Pergunta 2
+=======================================================
+1. What is the IP address of the attacker's machine?
+
+R: 172.16.226.130
+
+-------------------------------------------------------
+
+2. Was the attack from an:
+
+R: Internal endpoint
+
+-------------------------------------------------------
+
+3. What tool was used for the reconnaissance activity?
+
+R: nmap
+
+-------------------------------------------------------
+
+4. How many TCP ports were scanned during the reconnaissance phase?
+
+R: 1000
+
+-------------------------------------------------------
+
+5. Why is a UDP scan harder to detect than a TCP SYN scan?
+
+R: UDP does not establish a connection, generating fewer logs
+
+-------------------------------------------------------
+
+6. After the scanning phase, the attacker sent data using ICMP packets.
+How many ICMP echo request packets contain data payloads?
+
+R: 21
+
+-------------------------------------------------------
+
+7. Extract the first flag hidden in the ICMP traffic (Format: ISELCTF{...})
+
+R: ISELCTF{1stOneCheck!}
+
+-------------------------------------------------------
+
+8. A second flag was exfiltrated using ICMP packets, but it was fragmented across multiple packets. 
+Reconstruct the complete flag(Format: ISELCTF{...})
+
+R: ISELCTF{N1c30n3}
+
+-------------------------------------------------------
+
+9. What was the correct sequence of attack activities?
+
+R: Discovery scan -> TCP scan -> Udp scan -> ICMP exfiltration
+
+-------------------------------------------------------
+
+10. Select the TRUE statements about using ICMP for data exfiltration:
+
+R:
+- ICMP is frequently allowed in firewalls for network troubleshooting
+  
+- Many IDS do not inspect ICMP packet payloads
+
+-------------------------------------------------------
+
+11. Indicate which of the following measures can detect or prevent ICMP exfiltration:
+
+R:
+- Block all outbound ICMP traffic
+
+- Inspect ICMP payload sizes
+
+- Implement rate limiting on ICMP packets
+
+- Analyze anomalous patterns in ICMP traffic

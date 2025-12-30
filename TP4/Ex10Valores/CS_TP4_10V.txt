@@ -101,4 +101,4 @@ R: Use of unencrypted protocol for file transfer
 -------------------------------------------------------
 20. Which regular expression pattern could be used in an IDS rule to detect base64-encoded content in FTP transfers?
 
-R: ^USER.*PASSWORD
+R: [A-Za-z0-9+/]{50,}={0,2}
